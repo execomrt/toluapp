@@ -28,8 +28,16 @@ function classModule:register (pre)
  output(pre..'tolua_module(tolua_S,"'..self.name..'",',self:hasvar(),');')
  output(pre..'tolua_beginmodule(tolua_S,"'..self.name..'");')
  local i=1
+ local isDuplicated = false
  while self[i] do
-  self[i]:register(pre..' ')
+  --do not register duplicates that will be overwriten
+  --if self[i+1] then print(self[i].lname, self[i+1].lname) end
+  if self[i+1] and self[i].lname and (self[i].lname == self[i+1].lname) then
+	isDuplicated = true
+  else
+	isDuplicated = false
+  end
+  if not isDuplicated then self[i]:register(pre.."  ") end
   i = i+1
  end
  output(pre..'tolua_endmodule(tolua_S);')

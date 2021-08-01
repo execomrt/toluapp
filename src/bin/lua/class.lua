@@ -41,10 +41,10 @@ function classClass:register (pre)
 		output(pre,'#ifdef __cplusplus\n')
   output(pre..'tolua_cclass(tolua_S,"'..self.lname..'","'..self.type..'","'..self.btype..'",'.._collect[self.type]..');')
 		output(pre,'#else\n')
-  output(pre..'tolua_cclass(tolua_S,"'..self.lname..'","'..self.type..'","'..self.btype..'",NULL);')
+  output(pre..'tolua_cclass(tolua_S,"'..self.lname..'","'..self.type..'","'..self.btype..'",nullptr);')
 		output(pre,'#endif\n')
 	else
-  output(pre..'tolua_cclass(tolua_S,"'..self.lname..'","'..self.type..'","'..self.btype..'",NULL);')
+  output(pre..'tolua_cclass(tolua_S,"'..self.lname..'","'..self.type..'","'..self.btype..'",nullptr);')
 	end
 	if self.extra_bases then
 		for k,base in ipairs(self.extra_bases) do
@@ -54,8 +54,16 @@ function classClass:register (pre)
 	end
  output(pre..'tolua_beginmodule(tolua_S,"'..self.lname..'");')
  local i=1
+ local isDuplicated = false
  while self[i] do
-  self[i]:register(pre..' ')
+  --if self[i+1] then print(self[i].lname, self[i+1].lname) end
+  if self[i+1] and (self[i].lname == self[i+1].lname) then
+	isDuplicated = true
+  else
+	isDuplicated = false
+  end
+  if not isDuplicated then self[i]:register(pre.."  ") end
+  --self[i]:register(pre..' ')
   i = i+1
  end
  output(pre..'tolua_endmodule(tolua_S);')

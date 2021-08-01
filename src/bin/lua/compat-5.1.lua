@@ -1,9 +1,6 @@
-if string.find(_VERSION, "5%.0") then
-	return
-end
 
 -- "loadfile"
-local function pp_dofile(path)
+local function dofileArg(path)
 
 	local loaded = false
 	local getfile = function()
@@ -33,8 +30,7 @@ local function pp_dofile(path)
 	return f()
 end
 
-old_dofile = dofile
-dofile = pp_dofile
+
 
 
 -- string.gsub

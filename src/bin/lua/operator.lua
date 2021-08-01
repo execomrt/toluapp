@@ -90,7 +90,7 @@ function classOperator:supcode_tmp()
 
 	-- check self
 	output('#ifndef TOLUA_RELEASE\n')
-	output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in function \'%s\'", self.name)..'",NULL);');
+	output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in function \'%s\'", self.name)..'",nullptr);');
 	output('#endif\n')
 
 	-- cast self
@@ -108,11 +108,11 @@ function classOperator:supcode_tmp()
 		if self.ptr == '' then
 			output('   {')
 			output('#ifdef __cplusplus\n')
-			output('    void* tolua_obj = Mtolua_new((',new_t,')(tolua_ret));')
+			output('    auto tolua_obj = Mtolua_new((',new_t,')(tolua_ret));')
 			output('    ',push_func,'(tolua_S,tolua_obj,"',t,'");')
 			output('    tolua_register_gc(tolua_S,lua_gettop(tolua_S));')
 			output('#else\n')
-			output('    void* tolua_obj = tolua_copy(tolua_S,(void*)&tolua_ret,sizeof(',t,'));')
+			output('    auto tolua_obj = tolua_copy(tolua_S,(void*)&tolua_ret,sizeof(',t,'));')
 			output('    ',push_func,'(tolua_S,tolua_obj,"',t,'");')
 			output('    tolua_register_gc(tolua_S,lua_gettop(tolua_S));')
 			output('#endif\n')
@@ -201,8 +201,8 @@ function Operator (d,k,a,c)
   l[l.n].name = 'tolua_value'
  end
  local f = Declaration(d,'func')
- if k == '[]' and (l[1]==nil or isbasic(l[1].type)~='number') then
-  error('operator[] can only be defined for numeric index.')
+ if k == '[]' and (l[1]==nil or isbasic(l[1].type)~='number' and isbasic(l[1].type)~='integer') then
+  error('operator[] can only be defined for numeric or integer index.')
  end
  f.args = l
  f.const = c

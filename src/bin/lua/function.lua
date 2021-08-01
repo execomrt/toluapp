@@ -9,8 +9,6 @@
 -- the author has no obligation to provide maintenance, support, updates,
 -- enhancements, or modifications.
 
-
-
 -- Function class
 -- Represents a function or a class method.
 -- The following fields are stored:
@@ -28,6 +26,7 @@ classFunction = {
  name = '',
  args = {n=0},
  const = '',
+ isGetSet = false,
 }
 classFunction.__index = classFunction
 setmetatable(classFunction,classFeature)
@@ -80,11 +79,26 @@ function classFunction:supcode (local_constructor)
  end
  output("{")
 
+ if local_constructor then
+  output(' int result = ' .. self.cname .. '(tolua_S);')
+  output(' if(result) tolua_register_gc(tolua_S,lua_gettop(tolua_S));')
+  output(' return result;')
+  output('}')
+  output('#endif //#ifndef TOLUA_DISABLE\n')
+  output('\n')
+  return
+ end
+ 
+ --check params count
+ if self.isGetSet then
+  output(' int nparam = lua_gettop(tolua_S);\n')
+ end
+ 
  -- check types
-	if overload < 0 then
-	 output('#ifndef TOLUA_RELEASE\n')
-	end
-	output(' tolua_Error tolua_err;')
+ if overload < 0 then
+  output('#ifndef TOLUA_RELEASE\n')
+ end
+ output(' tolua_Error tolua_err;')
  output(' if (\n')
  -- check self
  local narg
@@ -97,26 +111,37 @@ function classFunction:supcode (local_constructor)
 			type = self.parent.type
 		end
 		if self.const ~= '' then
-			type = "const "..type
+			--type = "const "..type
 		end
-		output('     !'..func..'(tolua_S,1,"'..type..'",0,&tolua_err) ||\n')
+		local strOut = '     !'..func..'(tolua_S,1,"'..type..'",0,&tolua_err)'
+		if self.isGetSet then
+			strOut = strOut .. '\n'
+		else
+			strOut = strOut .. ' ||\n'
+		end
+		output(strOut)
  end
- -- check args
- if self.args[1].type ~= 'void' then
-  local i=1
-  while self.args[i] do
-   local btype = isbasic(self.args[i].type)
-   if btype ~= 'value' and btype ~= 'state' then
-    output('     '..self.args[i]:outchecktype(narg)..' ||\n')
-   end
-   if btype ~= 'state' then
-	   narg = narg+1
-   end
-   i = i+1
-  end
+ 
+ if not self.isGetSet then
+	 -- check args
+	 if self.args[1].type ~= 'void' then
+	  local i=1
+	  while self.args[i] do
+	   local btype = isbasic(self.args[i].type)
+	   if btype ~= 'value' and btype ~= 'state' then
+	    output('     '..self.args[i]:outchecktype(narg)..' ||\n')
+	   end
+	   if btype ~= 'state' then
+		   narg = narg+1
+	   end
+	   i = i+1
+	  end
+	 end
+	 -- check end of list
+	 output('     !tolua_isnoobj(tolua_S,'..narg..',&tolua_err)\n )')
+ else
+	 output(' )')
  end
- -- check end of list
- output('     !tolua_isnoobj(tolua_S,'..narg..',&tolua_err)\n )')
 	output('  goto tolua_lerror;')
 
  output(' else\n')
@@ -136,22 +161,29 @@ function classFunction:supcode (local_constructor)
  elseif static then
   _,_,self.mod = strfind(self.mod,'^%s*static%s%s*(.*)')
  end
- -- declare parameters
- if self.args[1].type ~= 'void' then
-  local i=1
-  while self.args[i] do
-   self.args[i]:declare(narg)
-   if isbasic(self.args[i].type) ~= "state" then
-	   narg = narg+1
-   end
-   i = i+1
-  end
+ 
+ local write_params_declaration = function()
+	 -- declare parameters
+	 if self.args[1].type ~= 'void' then
+	  local i=1
+	  while self.args[i] do
+	   self.args[i]:declare(narg)
+	   if isbasic(self.args[i].type) ~= "state" then
+		   narg = narg+1
+	   end
+	   i = i+1
+	  end
+	 end
  end
 
+ if not self.isGetSet then
+	write_params_declaration()
+ end
+ 
  -- check self
  if class and self.name~='new' and static==nil then
 	 output('#ifndef TOLUA_RELEASE\n')
-	 output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in function \'%s\'", self.name)..'", NULL);');
+	 output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in function \'%s\'", self.name)..'", nullptr);');
 	 output('#endif\n')
  end
 
@@ -180,61 +212,80 @@ function classFunction:supcode (local_constructor)
   end
  else
   output('  {')
-  if self.type ~= '' and self.type ~= 'void' then
-   output('  ',self.mod,self.type,self.ptr,'tolua_ret = ')
-   output('(',self.mod,self.type,self.ptr,') ')
-  else
-   output('  ')
+  
+  if self.isGetSet then
+   output('    if(nparam < 2) {')
   end
-  if class and self.name=='new' then
-   output('Mtolua_new((',self.type,')(')
-  elseif class and static then
-	if out then
-		output(self.name,'(')
-	else
-		output(class..'::'..self.name,'(')
-	end
-  elseif class then
-	if out then
-		output(self.name,'(')
-	else
-	  if self.cast_operator then
-	  	--output('static_cast<',self.mod,self.type,self.ptr,' >(*self')
-		output('self->operator ',self.mod,self.type,'(')
+
+  local write_function_call = function(withReturnValue, withEmptyParams) 
+	if withReturnValue then
+	  if self.type ~= '' and self.type ~= 'void' then
+	   -- output('  ',self.mod,self.type,self.ptr,'tolua_ret = ')
+	   output('   auto tolua_ret = ') -- 
+	   local isStrict = true
+	   if (isStrict == false) then
+		output('(',self.mod,self.type,self.ptr,') ')
 	  else
-		output('self->'..self.name,'(')
+		-- output(self.mod,self.ptr)
+	  end
+	  else
+	   output('  ')
 	  end
 	end
-  else
-   output(self.name,'(')
-  end
+	  if class and self.name=='new' then
+	   output('Mtolua_new((',self.type,')(')
+	  elseif class and static then
+		if out then
+			output(self.name,'(')
+		else
+			output(class..'::'..self.name,'(')
+		end
+	  elseif class then
+		if out then
+			output(self.name,'(')
+		else
+		  if self.cast_operator then
+		  	--output('static_cast<',self.mod,self.type,self.ptr,' >(*self')
+			output('self->operator ',self.mod,self.type,'(')
+		  else
+			output('self->'..self.name,'(')
+		  end
+		end
+	  else
+	   output(self.name,'(')
+	  end
 
-  if out and not static then
-  	output('self')
-	if self.args[1] and self.args[1].name ~= '' then
-		output(',')
-	end
+	  if out and not static then
+	  	output('self')
+		if self.args[1] and self.args[1].name ~= '' then
+			output(',')
+		end
+	  end
+	  if not withEmptyParams then
+		  -- write parameters
+		  local i=1
+		  while self.args[i] do
+		   self.args[i]:passpar()
+		   i = i+1
+		   if self.args[i] then
+		    output(',')
+		   end
+		  end
+	  end
+	  
+	  if class and self.name == 'operator[]' and flags['1'] then
+		output('-1);')
+	  else
+		if class and self.name=='new' then
+			output('));') -- close Mtolua_new(
+		else
+			output(');')
+		end
+	  end
   end
-  -- write parameters
-  local i=1
-  while self.args[i] do
-   self.args[i]:passpar()
-   i = i+1
-   if self.args[i] then
-    output(',')
-   end
-  end
-
-  if class and self.name == 'operator[]' and flags['1'] then
-	output('-1);')
-  else
-	if class and self.name=='new' then
-		output('));') -- close Mtolua_new(
-	else
-		output(');')
-	end
-  end
-
+  
+  write_function_call(true, self.isGetSet)
+  
   -- return values
   if self.type ~= '' and self.type ~= 'void' then
    nret = nret + 1
@@ -255,20 +306,16 @@ function classFunction:supcode (local_constructor)
     local push_func = get_push_function(t)
     if self.ptr == '' then
      output('   {')
-     output('#ifdef __cplusplus\n')
-     output('    void* tolua_obj = Mtolua_new((',new_t,')(tolua_ret));')
+     output('    auto tolua_obj = Mtolua_new((',new_t,')(tolua_ret));')
      output('    ',push_func,'(tolua_S,tolua_obj,"',t,'");')
-     output('    tolua_register_gc(tolua_S,lua_gettop(tolua_S));')
-     output('#else\n')
-     output('    void* tolua_obj = tolua_copy(tolua_S,(void*)&tolua_ret,sizeof(',t,'));')
-     output('    ',push_func,'(tolua_S,tolua_obj,"',t,'");')
-     output('    tolua_register_gc(tolua_S,lua_gettop(tolua_S));')
-     output('#endif\n')
+     output('    tolua_register_gc(tolua_S,lua_gettop(tolua_S));')     
      output('   }')
     elseif self.ptr == '&' then
      output('   ',push_func,'(tolua_S,(void*)&tolua_ret,"',t,'");')
+    elseif self.ptr == '^' then
+     output('   ',push_func,'(tolua_S,tolua_ret.get(),"',t,'");')
     else
-	 output('   ',push_func,'(tolua_S,(void*)tolua_ret,"',t,'");')
+	 output('   ',push_func,'(tolua_S,tolua_ret,"',t,'");')
 	 if owned or local_constructor then
       output('    tolua_register_gc(tolua_S,lua_gettop(tolua_S));')
 	 end
@@ -280,6 +327,22 @@ function classFunction:supcode (local_constructor)
    nret = nret + self.args[i]:retvalue()
    i = i+1
   end
+  
+  if self.isGetSet then
+   output('     return 1;')
+   output('    } else {')
+   output('#ifndef TOLUA_RELEASE\n')
+   output('  if (');
+   output('   '..self.args[1]:outchecktype(2) .. ' ||')
+   output('   !tolua_isnoobj(tolua_S, 3,&tolua_err)')
+   output('  ) goto tolua_lerror;');
+   output('#endif\n')
+   self.args[1]:declare(2)
+   write_function_call(false, false)
+   output('     return 0;')
+   output('    }')
+  end
+  
   output('  }')
 
   -- set array element values
@@ -306,10 +369,12 @@ function classFunction:supcode (local_constructor)
  post_call_hook(self)
 
  output(' }')
- output(' return '..nret..';')
+ if not self.isGetSet then
+  output(' return '..nret..';')
+ end
 
  -- call overloaded function or generate error
-	if overload < 0 then
+	if (overload < 0) or self.isGetSet then
 
 		output('#ifndef TOLUA_RELEASE\n')
 		output('tolua_lerror:\n')
@@ -416,7 +481,7 @@ function param_object(par) -- returns true if the parameter has an object as its
 		if string.find(par, '=%s*new') or string.find(par, "%(") then -- it's a pointer with an instance as default parameter.. is that valid?
 			return true
 		end
-		return false -- default value is 'NULL' or something
+		return false -- default value is 'nullptr' or something
 	end
 
 
@@ -487,12 +552,22 @@ function Function (d,a,c)
 		return nil
 	end
 
+	local isGetSet = false
+	d = d:gsub('%s*tolua_get_set%s+', function(m)
+			isGetSet = true
+			return ' '
+		end)
+		
+	local i=1
+	local l = {n=0}
 
- local i=1
- local l = {n=0}
-
- 	a = string.gsub(a, "%s*([%(%)])%s*", "%1")
-	local t,strip,last = strip_pars(strsub(a,2,-2));
+ 	a = string.gsub(a, "%s*([%(%)])%s*", "%1"):sub(2,-2)
+	if not a:find('%S') and isGetSet then
+		a = d:gsub('%S+$', '') .. ' opt'
+		a = a:gsub('%s*static%s+', ' ')
+		a = a:gsub('%s*virtual%s+', ' ')
+	end
+	local t,strip,last = strip_pars(a);
 	if strip then
 		--local ns = string.sub(strsub(a,1,-2), 1, -(string.len(last)+1))
 		local ns = join(t, ",", 1, last-1)
@@ -511,7 +586,9 @@ function Function (d,a,c)
   l[l.n] = Declaration(t[i],'var',true)
   i = i+1
  end
+ 
  local f = Declaration(d,'func')
+ f.isGetSet = isGetSet
  f.args = l
  f.const = c
  return _Function(f)

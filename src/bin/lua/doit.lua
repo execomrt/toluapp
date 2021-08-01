@@ -28,7 +28,7 @@ function doit ()
 	-- define package name, if not provided
 	if not flags.n then
 		if flags.f then
-			flags.n = gsub(flags.f,"%..*$","")
+			flags.n = string.gsub(flags.f,"%..*$","")
 			_,_,flags.n = string.find(flags.n, "([^/\\]*)$")
 		else
 			error("#no package name nor input file provided")

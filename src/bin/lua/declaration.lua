@@ -27,7 +27,8 @@ classDeclaration = {
  name = '',
  dim = '',
  ret = '',
- def = ''
+ def = '',
+ isGetSet = false,
 }
 classDeclaration.__index = classDeclaration
 setmetatable(classDeclaration,classFeature)
@@ -205,6 +206,7 @@ end
 function classDeclaration:decltype ()
 
 	self.type = typevar(self.type)
+	
 	if strfind(self.mod,'const') then
 		self.type = 'const '..self.type
 		self.mod = gsub(self.mod,'const%s*','')
@@ -216,6 +218,8 @@ end
 function classDeclaration:outchecktype (narg)
  local def
  local t = isbasic(self.type)
+ local thistype = string.gsub(self.type, "const%s+", "")
+ 
  if self.def~='' then
   def = 1
  else
@@ -230,11 +234,11 @@ function classDeclaration:outchecktype (narg)
  elseif t then
 	return '!tolua_is'..t..'(tolua_S,'..narg..','..def..',&tolua_err)'
  else
-  local is_func = get_is_function(self.type)
+  local is_func = get_is_function(self.type)  
   if self.ptr == '&' or self.ptr == '' then
-  	return '(tolua_isvaluenil(tolua_S,'..narg..',&tolua_err) || !'..is_func..'(tolua_S,'..narg..',"'..self.type..'",'..def..',&tolua_err))'
+  	return '(tolua_isvaluenil(tolua_S,'..narg..',&tolua_err) || !'..is_func..'(tolua_S,'..narg..',"'..thistype..'",'..def..',&tolua_err))'
   else
-	return '!'..is_func..'(tolua_S,'..narg..',"'..self.type..'",'..def..',&tolua_err)'
+	return '!'..is_func..'(tolua_S,'..narg..',"'..thistype..'",'..def..',&tolua_err)'
   end
  end
 end
@@ -250,7 +254,12 @@ function classDeclaration:builddeclaration (narg, cplusplus)
 	 type = gsub(self.type,'const%s+','')  -- eliminates const modifier for arrays
  end
  if self.ptr~='' and not isbasic(type) then ptr = '*' end
- line = concatparam(line," ",self.mod,type,ptr)
+ if (cplusplus) then
+   line = concatparam(line," auto")
+  else
+   line = concatparam(line," ",self.mod,type,ptr)
+  end
+ 
  if array then
   line = concatparam(line,'*')
  end
@@ -305,15 +314,7 @@ end
 
 -- Declare variable
 function classDeclaration:declare (narg)
- if self.dim ~= '' and tonumber(self.dim)==nil then
-	 output('#ifdef __cplusplus\n')
 		output(self:builddeclaration(narg,true))
-		output('#else\n')
-		output(self:builddeclaration(narg,false))
-	 output('#endif\n')
-	else
-		output(self:builddeclaration(narg,false))
-	end
 end
 
 -- Get parameter value
@@ -371,10 +372,10 @@ function classDeclaration:setarray (narg)
    if self.ptr == '' then
      output('   {')
      output('#ifdef __cplusplus\n')
-     output('    void* tolua_obj = Mtolua_new((',type,')(',self.name,'[i]));')
+     output('    auto tolua_obj = Mtolua_new((',type,')(',self.name,'[i]));')
      output('    tolua_pushfieldusertype_and_takeownership(tolua_S,',narg,',i+1,tolua_obj,"',type,'");')
      output('#else\n')
-     output('    void* tolua_obj = tolua_copy(tolua_S,(void*)&',self.name,'[i],sizeof(',type,'));')
+     output('    auto tolua_obj = tolua_copy(tolua_S,(void*)&',self.name,'[i],sizeof(',type,'));')
      output('    tolua_pushfieldusertype(tolua_S,',narg,',i+1,tolua_obj,"',type,'");')
      output('#endif\n')
      output('   }')
@@ -407,6 +408,7 @@ function classDeclaration:passpar ()
   output(self.name)
  end
 end
+
 
 -- Return parameter value
 function classDeclaration:retvalue ()
@@ -520,9 +522,24 @@ function Declaration (s,kind,is_parameter)
    kind = kind
   }
  end
+  -- 2021: check the form: mod type^ name (using std::shared_ptr)
+  t = split_c_tokens(s,'^')
+ if t.n == 2 then
+  --local m = split(t[1],'%s%s*')
+  local m = split_c_tokens(t[1],'%s+')
+  return _Declaration{
+   name = t[2]..tmpdef,
+   ptr = '^',
+   --type = rebuild_template(m[m.n], tb, timpl),
+   type = m[m.n],
+   mod = concat(m,1,m.n-1),
+   is_parameter = is_parameter,
+   kind = kind
+  }
+ end
 
  -- check the form: mod type* name
- local s1 = gsub(s,"(%b\[\])",function (n) return gsub(n,'%*','\1') end)
+ local s1 = gsub(s,"(%b\\[\\])",function (n) return gsub(n,'%*','\1') end)
  t = split_c_tokens(s1,'%*')
  if t.n == 2 then
   t[2] = gsub(t[2],'\1','%*') -- restore * in dimension expression

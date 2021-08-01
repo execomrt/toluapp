@@ -47,12 +47,12 @@ function classCode:register (pre)
  end
 
  -- pad to 16 bytes
- local npad = 16 - (#s % 16)
- local spad = ""
- for i=1,npad do
- 	spad = spad .. "-"
- end
- s = s..spad
+ -- local npad = 16 - (#s % 16)
+ -- local spad = ""
+ -- for i=1,npad do
+ 	-- spad = spad .. " "
+ -- end
+ s = s..'\n'
  
  -- convert to C
  output('\n'..pre..'{ /* begin embedded lua code */\n')

@@ -16,11 +16,11 @@
 -- and all occurrences of "void*" will be replaced by "_userdata"
 _basic = {
  ['void'] = '',
- ['char'] = 'number',
- ['int'] = 'number',
- ['short'] = 'number',
- ['long'] = 'number',
- ['unsigned'] = 'number',
+ ['char'] = 'integer',
+ ['int'] = 'integer',
+ ['short'] = 'integer',
+ ['long'] = 'integer',
+ ['unsigned'] = 'unsigned',
  ['float'] = 'number',
  ['double'] = 'number',
  ['_cstring'] = 'string',
@@ -37,6 +37,8 @@ _basic = {
 
 _basic_ctype = {
  number = "lua_Number",
+ unsigned = "lua_Unsigned",
+ integer = "lua_Integer", -- Lua 5.2
  string = "const char*",
  userdata = "void*",
  boolean = "bool",
@@ -251,8 +253,9 @@ end
 
 -- concatenate all parameters, following output rules
 function concatparam (line, ...)
+  local arg = {...}
  local i=1
- while i<=arg.n do
+ while i<=#arg do
   if _cont and not strfind(_cont,'[%(,"]') and
      strfind(arg[i],"^[%a_~]") then
 	    line = line .. ' '
@@ -263,7 +266,7 @@ function concatparam (line, ...)
   end
   i = i+1
  end
- if strfind(arg[arg.n],"[%/%)%;%{%}]$") then
+ if strfind(arg[#arg],"[%/%)%;%{%}]$") then
   _cont=nil line = line .. '\n'
  end
 	return line
@@ -271,8 +274,9 @@ end
 
 -- output line
 function output (...)
+    local arg={...}
  local i=1
- while i<=arg.n do
+ while i<=#arg do
   if _cont and not strfind(_cont,'[%(,"]') and
      strfind(arg[i],"^[%a_~]") then
 	    write(' ')
@@ -283,7 +287,8 @@ function output (...)
   end
   i = i+1
  end
- if strfind(arg[arg.n],"[%/%)%;%{%}]$") then
+ 
+ if strfind(arg[#arg],"[%/%)%;%{%}]$") then
   _cont=nil write('\n')
  end
 end
@@ -370,6 +375,18 @@ end
 
 -- called before the register code is output
 function pre_register_hook(package)
+
+end
+
+-- called before the register function code is output, after the function declaration
+-- passed parameters are the package and the output function
+function pre_register_code_hook(package, output)
+
+end
+
+-- called after the register function code is output, before the function return statement
+-- passed parameters are the package and the output function
+function post_register_code_hook(package, output)
 
 end
 

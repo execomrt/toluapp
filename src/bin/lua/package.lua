@@ -57,15 +57,46 @@ function classPackage:preprocess ()
                                                return "\n#<"..getn(C)..">#"
                                               end)
 
+ -- avoid preprocessing verbatim lines
+ -- try preserve order
+ local verbatimLineRE = "\n%s*%$([^%[%]][^\n]*)"
+ local verbatimBlockRE = "<verbatim>(.-)</verbatim>"
+ local findFrom, findTo
+ local verbatimTbl = {}
+ findTo = 0
+ repeat
+	findFrom, findTo = self.code:find(verbatimLineRE, findTo+1)
+	if findFrom then
+		table.insert(verbatimTbl, {findFrom, 'L'})
+	end
+ until not findFrom 
+
+ findTo = 0
+ repeat
+	findFrom, findTo = self.code:find(verbatimBlockRE, findTo+1)
+	if findFrom then
+		table.insert(verbatimTbl, {findFrom, 'B'})
+	end
+ until not findFrom 
+ 
+ table.sort(verbatimTbl, function(a,b) return a[1] < b[1] end)
+ 
+ for k,v in pairs(verbatimTbl) do
+	local useRE
+	if v[2] == 'L' then
+		useRE = verbatimLineRE
+	else
+		useRE = verbatimBlockRE
+	end
+	self.code = gsub(self.code,useRE,function (v)
+			Verbatim(v .. '\n')
+			haveFound = true
+			return "\n"
+		end)
+ end
+ 
  --self.code = gsub(self.code,"\n%s*#[^d][^\n]*\n", "\n\n") -- eliminate preprocessor directives that don't start with 'd'
  self.code = gsub(self.code,"\n[ \t]*#[ \t]*[^d%<%[]", "\n//") -- eliminate preprocessor directives that don't start with 'd'
-
- -- avoid preprocessing verbatim lines
- local V = {}
- self.code = gsub(self.code,"\n(%s*%$[^%[%]][^\n]*)",function (v)
-                                               tinsert(V,v)
-                                               return "\n#"..getn(V).."#"
-                                              end)
 
  -- perform global substitution
 
@@ -93,34 +124,31 @@ function classPackage:preprocess ()
  self.code = gsub(self.code,"%#%<(%d+)%>%#",function (n)
                                              return C[tonumber(n)]
                                             end)
- -- restore verbatim lines
- self.code = gsub(self.code,"%#(%d+)%#",function (n)
-                                         return V[tonumber(n)]
-                                        end)
+end
 
- self.code = string.gsub(self.code, "\n%s*%$([^\n]+)", function (l)
-											Verbatim(l.."\n")
-											return "\n"
-										  end)
+local function output_tolua_open_Function (name)
+  --output('#ifdef __cplusplus\n')
+  --output('extern "C" {\n')
+  --output('#endif\n')
+  output('/* Exported function */')
+  output('TOLUA_API int  tolua_'..name..'_open (lua_State* tolua_S);')
+  --output('#ifdef __cplusplus\n')
+  --output('}\n')
+  --output('#endif\n')
+  output('\n')
 end
 
 -- translate verbatim
 function classPackage:preamble ()
  output('/*\n')
  output('** Lua binding: '..self.name..'\n')
- output('** Generated automatically by '..TOLUA_VERSION..' on '..date()..'.\n')
+ output('** Generated automatically by '..TOLUA_VERSION..'\n')
  output('*/\n\n')
 
-	output('#ifndef __cplusplus\n')
-	output('#include "stdlib.h"\n')
-	output('#endif\n')
-	output('#include "string.h"\n\n')
- output('#include "tolua++.h"\n\n')
-
+ output('#include <string>\n\n')
+ 
  if not flags.h then
-  output('/* Exported function */')
-  output('TOLUA_API int  tolua_'..self.name..'_open (lua_State* tolua_S);')
-  output('\n')
+	output_tolua_open_Function(self.name)
  end
 
  local i=1
@@ -172,24 +200,34 @@ function classPackage:register (pre)
  output(pre.."/* Open function */")
  output(pre.."TOLUA_API int tolua_"..self.name.."_open (lua_State* tolua_S)")
  output(pre.."{")
+ pre_register_code_hook(self, output)
  output(pre.." tolua_open(tolua_S);")
  output(pre.." tolua_reg_types(tolua_S);")
- output(pre.." tolua_module(tolua_S,NULL,",self:hasvar(),");")
- output(pre.." tolua_beginmodule(tolua_S,NULL);")
+ output(pre.." tolua_module(tolua_S,nullptr,",self:hasvar(),");")
+ output(pre.." tolua_beginmodule(tolua_S,nullptr);")
  local i=1
  while self[i] do
   self[i]:register(pre.."  ")
   i = i+1
  end
  output(pre.." tolua_endmodule(tolua_S);")
+ post_register_code_hook(self, output)
  output(pre.." return 1;")
  output(pre.."}")
 
  output("\n\n")
+ output("#ifdef __cplusplus\n")
+ output('extern "C" {\n')
+ output("#endif\n\n")
+
  output("#if defined(LUA_VERSION_NUM) && LUA_VERSION_NUM >= 501\n");
  output(pre.."TOLUA_API int luaopen_"..self.name.." (lua_State* tolua_S) {")
  output(pre.." return tolua_"..self.name.."_open(tolua_S);")
  output(pre.."};")
+ output("#endif\n\n")
+ 
+ output("#ifdef __cplusplus\n")
+ output('}\n')
  output("#endif\n\n")
 
 	pop()
@@ -202,9 +240,7 @@ function classPackage:header ()
  output('*/\n\n')
 
  if not flags.h then
-  output('/* Exported function */')
-  output('TOLUA_API int  tolua_'..self.name..'_open (lua_State* tolua_S);')
-  output('\n')
+  output_tolua_open_Function(self.name)
  end
 end
 
@@ -242,6 +278,7 @@ function Package (name,fn)
  -- open input file, if any
  local st,msg
  if fn then
+   
   st, msg = readfrom(flags.f)
   if not st then
    error('#'..msg)
@@ -322,7 +359,7 @@ function prep(file)
       table.insert(chunk, string.sub(line, 3) .. "\n")
      else
       local last = 1
-      for text, expr, index in string.gfind(line, "(.-)$(%b())()") do 
+      for text, expr, index in string.gmatch(line, "(.-)$(%b())()") do 
         last = index
         if text ~= "" then
           table.insert(chunk, string.format('table.insert(__ret, %q )', text))
@@ -338,6 +375,7 @@ function prep(file)
   if e then
   	error("#"..e)
   end
-  setfenv(f, _extra_parameters)
+  
+  setfenv(f, _extra_parameters) -- 5.1 only
   return f()
 end

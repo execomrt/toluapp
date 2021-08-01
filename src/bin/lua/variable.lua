@@ -128,7 +128,8 @@ function classVariable:supcode ()
  -- declare self, if the case
  local _,_,static = strfind(self.mod,'^%s*(static)')
  if class and static==nil then
-  output(' ',self.parent.type,'*','self = ')
+  -- output(' ',self.parent.type,'*','self = ')
+  output(' ','auto','self = ')
   output('(',self.parent.type,'*) ')
   local to_func = get_to_function(self.parent.type)
   output(to_func,'(tolua_S,1,0);')
@@ -140,25 +141,22 @@ function classVariable:supcode ()
  -- check self value
  if class and static==nil then
 	 output('#ifndef TOLUA_RELEASE\n')
-  output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in accessing variable \'%s\'", self.name)..'",NULL);');
+  output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in accessing variable \'%s\'", self.name)..'",nullptr);');
 		output('#endif\n')
  end
 
  -- return value
  if string.find(self.mod, 'tolua_inherits') then
 	local push_func = get_push_function(self.type)
- 	output('#ifdef __cplusplus\n')
-	output('  ',push_func,'(tolua_S,(void*)static_cast<'..self.type..'*>(self), "',self.type,'");')
-	output('#else\n')
-	output('  ',push_func,'(tolua_S,(void*)(('..self.type..'*)self), "',self.type,'");')
-	output('#endif\n')
+ 	output('  ',push_func,'(tolua_S,(void*)static_cast<'..self.type..'*>(self), "',self.type,'");')	
  else
 	local t,ct = isbasic(self.type)
 	if t then
 		output('  tolua_push'..t..'(tolua_S,(',ct,')'..self:getvalue(class,static,prop_get)..');')
 	else
 		local push_func = get_push_function(self.type)
-		t = self.type
+		t = string.gsub(self.type, "const%s+", "")
+
 		if self.ptr == '&' or self.ptr == '' then
 			output('  ',push_func,'(tolua_S,(void*)&'..self:getvalue(class,static,prop_get)..',"',t,'");')
 		else
@@ -185,7 +183,8 @@ function classVariable:supcode ()
 
   -- declare self, if the case
   if class and static==nil then
-   output(' ',self.parent.type,'*','self = ')
+   -- output(' ',self.parent.type,'*','self = ')
+   output(' ','auto','self = ')
    output('(',self.parent.type,'*) ')
    local to_func = get_to_function(self.parent.type)
    output(to_func,'(tolua_S,1,0);')
@@ -195,7 +194,7 @@ function classVariable:supcode ()
 		output('#ifndef TOLUA_RELEASE\n')
 		output('  tolua_Error tolua_err;')
   if class and static==nil then
-   output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in accessing variable \'%s\'", self.name)..'",NULL);');
+   output('  if (!self) tolua_error(tolua_S,"'..output_error_hook("invalid \'self\' in accessing variable \'%s\'", self.name)..'",nullptr);');
   elseif static then
    _,_,self.mod = strfind(self.mod,'^%s*static%s%s*(.*)')
   end
@@ -280,7 +279,7 @@ function classVariable:register (pre)
  if self.csetname then
   output(pre..'tolua_variable(tolua_S,"'..self.lname..'",'..self.cgetname..','..self.csetname..');')
  else
-  output(pre..'tolua_variable(tolua_S,"'..self.lname..'",'..self.cgetname..',NULL);')
+  output(pre..'tolua_variable(tolua_S,"'..self.lname..'",'..self.cgetname..',nullptr);')
  end
 end
 
